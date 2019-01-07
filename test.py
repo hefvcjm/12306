@@ -111,8 +111,8 @@ def parseQueryResult(result):
     # |20|21高级软座|22|23软卧一等卧|24|25|26无座|27|28硬卧二等卧|29硬座|30二等座|31一等座|32商务特等座|33动卧|
     station_map = result["data"]["map"]
     show_index = [3, 4, 7, 8, 9, 10, 31, 30, 26, 33, 32, 28, 29, 23, 21]
-    show_name = ['车次', '出发站', '到达站', '出发时间', '到达时间', '时长', '一等座', '二等座', '无座', '动卧', '商务特等座', '硬卧二等卧', '硬座', '软卧一等卧',
-                 '高级软座']
+    show_name = ['车次', '出发站', '到达站', '出发时间', '到达时间', '时长', '一等座', '二等座', '无座', '动卧', '商务特等座', '硬卧', '硬座', '软卧',
+                 '高级软卧']
     show_info_list = []
     for item in split_info_list:
         temp = []
@@ -274,6 +274,8 @@ def getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationT
 # _json_att:
 # REPEAT_SUBMIT_TOKEN: cdaff9cee1daf1fcc03168fb436fc691
 
+# passengerTicketStr : 座位编号,0,票类型,乘客名,证件类型,证件号,手机号码,保存常用联系人(Y或N)
+# oldPassengersStr: 乘客名,证件类型,证件号,乘客类型
 def confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange, leftTicketStr,
                           train_location,
                           choose_seats, seatDetailType, whatsSelect, roomType, dwAll, REPEAT_SUBMIT_TOKEN):
@@ -345,6 +347,127 @@ def initOrderPage(REPEAT_SUBMIT_TOKEN):
 # _json_att:
 # REPEAT_SUBMIT_TOKEN: cdaff9cee1daf1fcc03168fb436fc691
 
+def main():
+    while True:
+        session = requests.Session()
+        getPassCode()
+        randCode = input("输入验证码，空格分隔:")
+        if randCode == "":
+            continue
+        check_result = checkPassCode(getCoordinate(randCode.split()))
+        if check_result["result_code"] == "4":
+            login_result = login()
+            if login_result["result_code"] == 0:
+                uamtk_auth_result = uamtkAuth()
+                if uamtk_auth_result["result_code"] == 0:
+                    uamAuthClient(uamtk_auth_result["newapptk"])
+                    query_result = queryLeftTicket()
+                    user_check_result = checkUser()
+                    if user_check_result["data"]["flag"] is False:
+                        print("用户未登录，请重新登录")
+                        continue
+                    show_name, show_info, ticket_info = parseQueryResult(query_result)
+                    print("查询信息如下:")
+                    print("出发站:", stations[station_from]["chi_name"])
+                    print("到达站:", stations[station_to]["chi_name"])
+                    print("日期:", date)
+                    print("车票类型:", purpose_code_map[purpose_code])
+                    print(end="\t\t")
+                    for item in show_name:
+                        print(item, end="\t\t")
+                    print()
+                    n = 1
+                    for item in show_info:
+                        print(n, end="\t\t")
+                        n += 1
+                        for i in item:
+                            print(i, end="\t\t")
+                        print()
+                    index_train = input("输入预定车票序号:")
+                    temp_seat_left = show_info[int(index_train) - 1][6:]
+                    if temp_seat_left.count("无") + temp_seat_left.count("-") == len(temp_seat_left):
+                        print("该车次已经没有空位")
+                        continue
+                    order = submitOrderRequest(requests.utils.unquote(ticket_info[int(index_train) - 1][0]), date,
+                                               purpose_code,
+                                               stations[station_from]["chi_name"],
+                                               stations[station_to]["chi_name"])
+                    if order["status"] is False:
+                        print("提交失败")
+                        continue
+                    initDc_page = initDc()
+                    jsVariable = getJsVariable(initDc_page)
+                    print(str(jsVariable).replace("'", "\""))
+                    REPEAT_SUBMIT_TOKEN = jsVariable["REPEAT_SUBMIT_TOKEN"]
+                    print("REPEAT_SUBMIT_TOKEN:", REPEAT_SUBMIT_TOKEN)
+                    passenger_info = getPassengerDTOS(REPEAT_SUBMIT_TOKEN)
+                    passenger_list = passenger_info["data"]["normal_passengers"]
+                    n = 1
+                    print("乘客信息:")
+                    for item in passenger_list:
+                        print(n, '\t', item["passenger_name"] + (
+                            "(%s)" % item["passenger_type_name"] if item["passenger_type_name"] == "学生" else ""))
+                        n += 1
+                    index = input("选择乘客编号，空格分隔:")
+                    passenger_index = [int(i) - 1 for i in index.strip().split()]
+                    commit_passenger_info = ["passenger_flag", "passenger_type", "passenger_name",
+                                             "passenger_id_type_code",
+                                             "passenger_id_no", "mobile_no"]
+                    commit_passenger_info_old = ["passenger_name", "passenger_flag", "passenger_id_type_code",
+                                                 "passenger_type", ]
+                    passengerTicketStr_list = []
+                    oldPassengerStr_list = []
+                    for index in passenger_index:
+                        temp = [seat_type]
+                        for name in commit_passenger_info:
+                            temp.append(passenger_list[index][name])
+                        temp.append("N")
+                        old_temp = []
+                        for name in commit_passenger_info_old:
+                            old_temp.append(passenger_list[index][name])
+                        old_temp.append("")
+                        passengerTicketStr_list.append(",".join(temp))
+                        oldPassengerStr_list.append(",".join(old_temp))
+                    # getPassCodeNew()
+                    cancel_flag = "2"
+                    bed_level_order_num = "000000000000000000000000000000"
+                    passengerTicketStr = "_".join(passengerTicketStr_list)
+                    oldPassengerStr = "".join(oldPassengerStr_list)
+                    tour_flag = "dc"
+                    whatsSelect = "1"
+                    checkOrderInfo(cancel_flag, bed_level_order_num, passengerTicketStr, oldPassengerStr, tour_flag,
+                                   whatsSelect, REPEAT_SUBMIT_TOKEN)
+                    go_date = datetime.datetime.strptime(date, "%Y-%m-%d")
+                    time_format = '%a %d %b %Y 00:00:00 GMT+0800 (China Standard Time)'
+                    train_date = go_date.strftime(time_format)
+                    train_no = ticket_info[int(index_train) - 1][2]
+                    stationTrainCode = ticket_info[int(index_train) - 1][3]
+                    seatType = "0"
+                    fromStationTelecode = station_from
+                    toStationTelecode = station_to
+                    leftTicket = ticket_info[int(index_train) - 1][12]
+                    purpose_codes = jsVariable["ticketInfoForPassengerForm"]["purpose_codes"]
+                    train_location = ticket_info[int(index_train) - 1][15]
+                    getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationTelecode,
+                                  toStationTelecode,
+                                  leftTicket,
+                                  purpose_codes, train_location, REPEAT_SUBMIT_TOKEN)
+                    key_check_isChange = jsVariable["ticketInfoForPassengerForm"]["key_check_isChange"]
+                    choose_seats = ""
+                    seatDetailType = ""
+                    roomType = "00"
+                    dwAll = "N"
+                    confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange,
+                                          leftTicket,
+                                          train_location,
+                                          choose_seats, seatDetailType, whatsSelect, roomType, dwAll,
+                                          REPEAT_SUBMIT_TOKEN)
+                    orderSequence_no = jsVariable["order_request_params"]["sequence_no"]
+                    orderSequence_no = orderSequence_no if orderSequence_no is not None else ""
+                    resultOrderForDcQueue(orderSequence_no, REPEAT_SUBMIT_TOKEN)
+                    break
+
+
 # 查询信息
 # 发车站
 station_from = "IZQ"
@@ -355,131 +478,21 @@ date = "2019-01-10"
 # 类型
 purpose_code = "ADULT"
 # 车票类型map
-purpose_code_map = {"ADULT": "成人票"}
+purpose_code_map = {"ADULT": "成人票", "0X00": "学生票"}
 
-while True:
-    session = requests.Session()
-    getPassCode()
-    randCode = input("输入验证码，空格分隔:")
-    if randCode == "":
-        continue
-    check_result = checkPassCode(getCoordinate(randCode.split()))
-    if check_result["result_code"] == "4":
-        login_result = login()
-        if login_result["result_code"] == 0:
-            uamtk_auth_result = uamtkAuth()
-            if uamtk_auth_result["result_code"] == 0:
-                uamAuthClient(uamtk_auth_result["newapptk"])
-                query_result = queryLeftTicket()
-                user_check_result = checkUser()
-                if user_check_result["data"]["flag"] is False:
-                    print("用户未登录，请重新登录")
-                    continue
-                show_name, show_info, ticket_info = parseQueryResult(query_result)
-                print("查询信息如下:")
-                print("出发站:", stations[station_from]["chi_name"])
-                print("到达站:", stations[station_to]["chi_name"])
-                print("日期:", date)
-                print("车票类型:", purpose_code_map[purpose_code])
-                print(end="\t\t")
-                for item in show_name:
-                    print(item, end="\t\t")
-                print()
-                n = 1
-                for item in show_info:
-                    print(n, end="\t\t")
-                    n += 1
-                    for i in item:
-                        print(i, end="\t\t")
-                    print()
-                index_train = input("输入预定车票序号:")
-                order = submitOrderRequest(requests.utils.unquote(ticket_info[int(index_train) - 1][0]), date,
-                                           purpose_code,
-                                           stations[station_from]["chi_name"],
-                                           stations[station_to]["chi_name"])
-                if order["status"] is False:
-                    print("提交失败")
-                    continue
-                initDc_page = initDc()
-                jsVariable = getJsVariable(initDc_page)
-                print(str(jsVariable).replace("'", "\""))
-                REPEAT_SUBMIT_TOKEN = jsVariable["REPEAT_SUBMIT_TOKEN"]
-                print("REPEAT_SUBMIT_TOKEN:", REPEAT_SUBMIT_TOKEN)
-                passenger_info = getPassengerDTOS(REPEAT_SUBMIT_TOKEN)
-                passenger_list = passenger_info["data"]["normal_passengers"]
-                n = 1
-                print("乘客信息:")
-                for item in passenger_list:
-                    print(n, '\t', item["passenger_name"] + (
-                        "(%s)" % item["passenger_type_name"] if item["passenger_type_name"] == "学生" else ""))
-                    n += 1
-                index = input("选择乘客编号，空格分隔:")
-                passenger_index = [int(i) for i in index.strip().split()]
-                commit_passenger_info = ["passenger_flag", "passenger_type", "passenger_name", "passenger_id_type_code",
-                                         "passenger_id_no", "mobile_no"]
-                commit_passenger_info_old = ["passenger_name", "passenger_flag", "passenger_id_type_code",
-                                             "passenger_type", ]
-                passengerTicketStr_list = []
-                oldPassengerStr_list = []
-                for index in passenger_index:
-                    temp = ['O']
-                    for name in commit_passenger_info:
-                        temp.append(passenger_list[index][name])
-                    temp.append("N")
-                    old_temp = []
-                    for name in commit_passenger_info:
-                        old_temp.append(passenger_list[index][name])
-                    old_temp.append("")
-                    passengerTicketStr_list.append(",".join(temp))
-                    oldPassengerStr_list.append(",".join(old_temp))
-                # getPassCodeNew()
-                cancel_flag = "2"
-                bed_level_order_num = "000000000000000000000000000000"
-                passengerTicketStr = "_".join(passengerTicketStr_list)
-                oldPassengerStr = "".join(oldPassengerStr_list)
-                tour_flag = "dc"
-                whatsSelect = "1"
-                checkOrderInfo(cancel_flag, bed_level_order_num, passengerTicketStr, oldPassengerStr, tour_flag,
-                               whatsSelect, REPEAT_SUBMIT_TOKEN)
-                go_date = datetime.datetime.strptime(date, "%Y-%m-%d")
-                time_format = '%a %d %b %Y 00:00:00 GMT+0800 (China Standard Time)'
-                train_date = go_date.strftime(time_format)
-                train_no = ticket_info[int(index_train) - 1][2]
-                stationTrainCode = ticket_info[int(index_train) - 1][3]
-                seatType = "0"
-                fromStationTelecode = station_from
-                toStationTelecode = station_to
-                leftTicket = ticket_info[int(index_train) - 1][12]
-                purpose_codes = jsVariable["ticketInfoForPassengerForm"]["purpose_codes"]
-                train_location = ticket_info[int(index_train) - 1][15]
-                getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationTelecode, toStationTelecode,
-                              leftTicket,
-                              purpose_codes, train_location, REPEAT_SUBMIT_TOKEN)
-                key_check_isChange = jsVariable["ticketInfoForPassengerForm"]["key_check_isChange"]
-                choose_seats = ""
-                seatDetailType = ""
-                roomType = "00"
-                dwAll = "N"
-                confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange,
-                                      leftTicket,
-                                      train_location,
-                                      choose_seats, seatDetailType, whatsSelect, roomType, dwAll, REPEAT_SUBMIT_TOKEN)
-                break
+# 座位类型
+seat_type = 'M'
 
-# passengerTicketStr: O,0,3,黄恩芳,1,450422199507080017,15823086497,N_O,0,1,陈大东,1,452423196610153311,,N
-# oldPassengerStr: 黄恩芳,1,450422199507080017,3_陈大东,1,452423196610153311,1_
-# randCode:
-# purpose_codes: 00
-# key_check_isChange: 08BFCE9B4FC5D53CF4BFFF923DDEE0F9A59C68C33696238F71CA6DA6
-# leftTicketStr: CTZ7ZN5CyfxdYfxYlaEbPqwTNaySxI2OImVy2SUz9zudWt5M
-# train_location: QZ
-# choose_seats: 1D1F
-# seatDetailType: 000
-# whatsSelect: 1
-# roomType: 00
-# dwAll: N
-# _json_att:
-# REPEAT_SUBMIT_TOKEN: cdaff9cee1daf1fcc03168fb436fc691
+seat_type_map = {
+    '一等座': 'M',
+    '特等座': 'P',
+    '二等座': 'O',
+    '商务座': 9,
+    '硬座': 1,
+    '无座': 1,
+    '软卧': 4,
+    '硬卧': 3,
+}
 
-# checkUser()
-# queryLeftTicket()
+if __name__ == '__main__':
+    main()
