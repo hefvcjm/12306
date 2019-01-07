@@ -5,6 +5,7 @@ import base64
 import json
 import datetime
 from station_name import stations
+import re
 
 session = requests.Session()
 session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
@@ -164,18 +165,42 @@ def initDc():
         "_json_att": ""
     }
     req = session.post(url, data)
-    print(req.content.decode("utf-8"))
+    # print(req.content.decode("utf-8"))
+    return req.text
+
+
+def getJsVariable(initDcPage):
+    token_name = re.compile(r"var globalRepeatSubmitToken = '(\S+)'")
+    ticketInfoForPassengerForm_name = re.compile(r'var ticketInfoForPassengerForm=(\{.+\})?')
+    order_request_params_name = re.compile(r'var orderRequestDTO=(\{.+\})?')
+    token = re.search(token_name, initDcPage).group(1)
+    re_tfpf = re.findall(ticketInfoForPassengerForm_name, initDcPage)
+    re_orp = re.findall(order_request_params_name, initDcPage)
+    if re_tfpf:
+        ticketInfoForPassengerForm = json.loads(re_tfpf[0].replace("'", '"'))
+    else:
+        ticketInfoForPassengerForm = ""
+    if re_orp:
+        order_request_params = json.loads(re_orp[0].replace("'", '"'))
+    else:
+        order_request_params = ""
+    return {
+        "REPEAT_SUBMIT_TOKEN": token,
+        "ticketInfoForPassengerForm": ticketInfoForPassengerForm,
+        "order_request_params": order_request_params,
+    }
 
 
 # 获取乘客信息
-def getPassengerDTOS():
+def getPassengerDTOS(REPEAT_SUBMIT_TOKEN):
     url = "https://kyfw.12306.cn/otn/confirmPassenger/getPassengerDTOs"
     data = {
         "_json_att": "",
-        "REPEAT_SUBMIT_TOKEN": ""
+        "REPEAT_SUBMIT_TOKEN": REPEAT_SUBMIT_TOKEN
     }
     req = session.post(url, data)
     print(req.content.decode("utf-8"))
+    return json.loads(req.text)
 
 
 def getPassCodeNew():
@@ -222,11 +247,11 @@ def getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationT
     url = "https://kyfw.12306.cn/otn/confirmPassenger/getQueueCount"
     data = {
         "train_date": train_date,
-        "train_no": train_no,
-        "stationTrainCode": stationTrainCode,
+        "train_no": train_no,  # 列车编号 2
+        "stationTrainCode": stationTrainCode,  # 列车代号 3
         "seatType": seatType,
-        "fromStationTelecode": fromStationTelecode,
-        "toStationTelecode": toStationTelecode,
+        "fromStationTelecode": fromStationTelecode,  # 出发站代号
+        "toStationTelecode": toStationTelecode,  # 到达站代号
         "leftTicket": leftTicket,
         "purpose_codes": purpose_codes,
         "train_location": train_location,
@@ -249,7 +274,8 @@ def getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationT
 # _json_att:
 # REPEAT_SUBMIT_TOKEN: cdaff9cee1daf1fcc03168fb436fc691
 
-def confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange, train_location,
+def confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange, leftTicketStr,
+                          train_location,
                           choose_seats, seatDetailType, whatsSelect, roomType, dwAll, REPEAT_SUBMIT_TOKEN):
     url = "https://kyfw.12306.cn/otn/confirmPassenger/confirmSingleForQueue"
     data = {
@@ -258,6 +284,7 @@ def confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, ke
         "randCode": "",
         "purpose_codes": purpose_codes,
         "key_check_isChange": key_check_isChange,
+        "leftTicketStr": leftTicketStr,
         "train_location": train_location,
         "choose_seats": choose_seats,
         "seatDetailType": seatDetailType,
@@ -333,7 +360,7 @@ purpose_code_map = {"ADULT": "成人票"}
 while True:
     session = requests.Session()
     getPassCode()
-    randCode = input("输入验证码:")
+    randCode = input("输入验证码，空格分隔:")
     if randCode == "":
         continue
     check_result = checkPassCode(getCoordinate(randCode.split()))
@@ -365,14 +392,94 @@ while True:
                     for i in item:
                         print(i, end="\t\t")
                     print()
-                index = input("输入预定车票序号:")
-                order = submitOrderRequest(requests.utils.unquote(ticket_info[int(index) - 1][0]), date, purpose_code,
+                index_train = input("输入预定车票序号:")
+                order = submitOrderRequest(requests.utils.unquote(ticket_info[int(index_train) - 1][0]), date,
+                                           purpose_code,
                                            stations[station_from]["chi_name"],
                                            stations[station_to]["chi_name"])
                 if order["status"] is False:
-                    pass
-
+                    print("提交失败")
+                    continue
+                initDc_page = initDc()
+                jsVariable = getJsVariable(initDc_page)
+                print(str(jsVariable).replace("'", "\""))
+                REPEAT_SUBMIT_TOKEN = jsVariable["REPEAT_SUBMIT_TOKEN"]
+                print("REPEAT_SUBMIT_TOKEN:", REPEAT_SUBMIT_TOKEN)
+                passenger_info = getPassengerDTOS(REPEAT_SUBMIT_TOKEN)
+                passenger_list = passenger_info["data"]["normal_passengers"]
+                n = 1
+                print("乘客信息:")
+                for item in passenger_list:
+                    print(n, '\t', item["passenger_name"] + (
+                        "(%s)" % item["passenger_type_name"] if item["passenger_type_name"] == "学生" else ""))
+                    n += 1
+                index = input("选择乘客编号，空格分隔:")
+                passenger_index = [int(i) for i in index.strip().split()]
+                commit_passenger_info = ["passenger_flag", "passenger_type", "passenger_name", "passenger_id_type_code",
+                                         "passenger_id_no", "mobile_no"]
+                commit_passenger_info_old = ["passenger_name", "passenger_flag", "passenger_id_type_code",
+                                             "passenger_type", ]
+                passengerTicketStr_list = []
+                oldPassengerStr_list = []
+                for index in passenger_index:
+                    temp = ['O']
+                    for name in commit_passenger_info:
+                        temp.append(passenger_list[index][name])
+                    temp.append("N")
+                    old_temp = []
+                    for name in commit_passenger_info:
+                        old_temp.append(passenger_list[index][name])
+                    old_temp.append("")
+                    passengerTicketStr_list.append(",".join(temp))
+                    oldPassengerStr_list.append(",".join(old_temp))
+                # getPassCodeNew()
+                cancel_flag = "2"
+                bed_level_order_num = "000000000000000000000000000000"
+                passengerTicketStr = "_".join(passengerTicketStr_list)
+                oldPassengerStr = "".join(oldPassengerStr_list)
+                tour_flag = "dc"
+                whatsSelect = "1"
+                checkOrderInfo(cancel_flag, bed_level_order_num, passengerTicketStr, oldPassengerStr, tour_flag,
+                               whatsSelect, REPEAT_SUBMIT_TOKEN)
+                go_date = datetime.datetime.strptime(date, "%Y-%m-%d")
+                time_format = '%a %d %b %Y 00:00:00 GMT+0800 (China Standard Time)'
+                train_date = go_date.strftime(time_format)
+                train_no = ticket_info[int(index_train) - 1][2]
+                stationTrainCode = ticket_info[int(index_train) - 1][3]
+                seatType = "0"
+                fromStationTelecode = station_from
+                toStationTelecode = station_to
+                leftTicket = ticket_info[int(index_train) - 1][12]
+                purpose_codes = jsVariable["ticketInfoForPassengerForm"]["purpose_codes"]
+                train_location = ticket_info[int(index_train) - 1][15]
+                getQueueCount(train_date, train_no, stationTrainCode, seatType, fromStationTelecode, toStationTelecode,
+                              leftTicket,
+                              purpose_codes, train_location, REPEAT_SUBMIT_TOKEN)
+                key_check_isChange = jsVariable["ticketInfoForPassengerForm"]["key_check_isChange"]
+                choose_seats = ""
+                seatDetailType = ""
+                roomType = "00"
+                dwAll = "N"
+                confirmSingleForQueue(passengerTicketStr, oldPassengerStr, purpose_codes, key_check_isChange,
+                                      leftTicket,
+                                      train_location,
+                                      choose_seats, seatDetailType, whatsSelect, roomType, dwAll, REPEAT_SUBMIT_TOKEN)
                 break
+
+# passengerTicketStr: O,0,3,黄恩芳,1,450422199507080017,15823086497,N_O,0,1,陈大东,1,452423196610153311,,N
+# oldPassengerStr: 黄恩芳,1,450422199507080017,3_陈大东,1,452423196610153311,1_
+# randCode:
+# purpose_codes: 00
+# key_check_isChange: 08BFCE9B4FC5D53CF4BFFF923DDEE0F9A59C68C33696238F71CA6DA6
+# leftTicketStr: CTZ7ZN5CyfxdYfxYlaEbPqwTNaySxI2OImVy2SUz9zudWt5M
+# train_location: QZ
+# choose_seats: 1D1F
+# seatDetailType: 000
+# whatsSelect: 1
+# roomType: 00
+# dwAll: N
+# _json_att:
+# REPEAT_SUBMIT_TOKEN: cdaff9cee1daf1fcc03168fb436fc691
 
 # checkUser()
 # queryLeftTicket()
