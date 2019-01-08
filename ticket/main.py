@@ -152,6 +152,7 @@ date = "2019-01-10"
 purpose_code = "ADULT"
 # 座位类型
 seat_type = 'O'
+#https://gist.github.com/hefvcjm/d2a48e6050e750824e309783fb938cf6
 
 if __name__ == '__main__':
     login()
