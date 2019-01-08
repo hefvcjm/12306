@@ -18,3 +18,16 @@ if station_names:
         temp['full_py'] = station_slice[3]
         temp['index'] = station_slice[5]
         stations[station_slice[2]] = temp
+
+purpose_code_map = {"ADULT": "成人票", "0X00": "学生票"}
+
+seat_type_map = {
+    '一等座': 'M',
+    '特等座': 'P',
+    '二等座': 'O',
+    '商务座': 9,
+    '硬座': 1,
+    '无座': 1,
+    '软卧': 4,
+    '硬卧': 3,
+}

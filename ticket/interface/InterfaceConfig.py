@@ -68,6 +68,7 @@ INTERFACE_CONFIG = {
     "check_login_pass_code": {
         "method": "post",
         "url": "https://kyfw.12306.cn/passport/captcha/captcha-check",
+        "params": None,
         "data": {
             "answer": Placeholder("randCode"),
             "rand": "sjrand",
@@ -97,7 +98,7 @@ INTERFACE_CONFIG = {
     # uamtk验证客户端
     "uam_auth_client": {
         "method": "post",
-        "url": "https://kyfw.12306.cn/passport/web/auth/uamtk",
+        "url": "https://kyfw.12306.cn/otn/uamauthclient",
         "params": None,
         "data": {
             "tk": Placeholder("tk"),

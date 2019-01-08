@@ -6,8 +6,20 @@ import json
 Method = ["post", "get"]
 
 
+def result_deal(response):
+    """
+    默认请求结果处理接口
+    :param response:  session请求返回结果
+    :return:
+    """
+    try:
+        return json.loads(response.text)
+    except json.decoder.JSONDecodeError:
+        return response.content.decode("utf-8")
+
+
 class Request:
-    def __init__(self, args):
+    def __init__(self, args, deal_func=result_deal):
         """
         构造方法
         :param args
@@ -17,17 +29,7 @@ class Request:
         self.__url = args["url"]
         self.__params = args["params"]
         self.__data = args["data"]
-
-    def result_deal(self, response):
-        """
-        请求结果处理接口
-        :param response:  session请求返回结果
-        :return:
-        """
-        try:
-            return json.loads(response.text)
-        except json.decoder.JSONDecodeError:
-            return response.content.decode("utf-8")
+        self.__deal_func = deal_func
 
     def request(self, show_log=True):
         """
@@ -45,4 +47,4 @@ class Request:
         response = execute(url=self.__url, params=self.__params, data=self.__data)
         if show_log:
             logger.info(response.content.decode("utf-8"))
-        return self.result_deal(response)
+        return self.__deal_func(response)

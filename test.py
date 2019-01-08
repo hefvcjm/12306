@@ -481,7 +481,7 @@ purpose_code = "ADULT"
 purpose_code_map = {"ADULT": "成人票", "0X00": "学生票"}
 
 # 座位类型
-seat_type = 'M'
+seat_type = 'O'
 
 seat_type_map = {
     '一等座': 'M',
